@@ -1,0 +1,165 @@
+name: TLBB Windows client build (diagnostic)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/skynet-framework-build
+    paths:
+      - .github/workflows/windows-client-build.yml
+      - Src/**
+      - Tools/build/**
+
+permissions:
+  contents: read
+
+jobs:
+  client-x64:
+    runs-on: windows-2022
+    timeout-minutes: 55
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Inspect required SDKs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path diagnostics | Out-Null
+          $paths = @(
+            'Src/ThirdParty/_sdk/fmod/api/core/inc/fmod.h',
+            'Src/ThirdParty/_sdk/fmod/api/core/lib/x64/fmod_vc.lib',
+            'Src/ThirdParty/DirectX9/Include/d3dx9.h',
+            'Src/ThirdParty/DirectX9/Lib/x64/d3dx9.lib'
+          )
+          foreach ($file in $paths) {
+            "$file : $(Test-Path -LiteralPath $file)" | Tee-Object -FilePath diagnostics/sdk-check.txt -Append
+          }
+          "Visual Studio: $env:VSINSTALLDIR" | Add-Content diagnostics/sdk-check.txt
+          cmake --version | Select-Object -First 1 | Add-Content diagnostics/sdk-check.txt
+
+      - name: Restore official Microsoft legacy D3DX for compile
+        shell: pwsh
+        run: |
+          $uri = 'https://api.nuget.org/v3-flatcontainer/microsoft.dxsdk.d3dx/9.29.952.8/microsoft.dxsdk.d3dx.9.29.952.8.nupkg'
+          New-Item -ItemType Directory -Force -Path '_deps' | Out-Null
+          Invoke-WebRequest -Uri $uri -OutFile '_deps/d3dx.zip' -ErrorAction Stop
+          Expand-Archive -Path '_deps/d3dx.zip' -DestinationPath '_deps/d3dx' -Force
+          $lib = Get-ChildItem '_deps/d3dx' -Recurse -File -Filter 'd3dx9.lib' |
+            Where-Object { $_.FullName -match '[\\/]x64[\\/]' } | Select-Object -First 1
+          if (-not $lib) { throw 'D3DX9 x64 import library missing from official package' }
+          New-Item -ItemType Directory -Force -Path 'Src/ThirdParty/DirectX9/Lib/x64' | Out-Null
+          Copy-Item $lib.FullName 'Src/ThirdParty/DirectX9/Lib/x64/d3dx9.lib'
+          "D3DX9 import library: $($lib.FullName)" | Add-Content diagnostics/sdk-check.txt
+
+      - name: Configure Windows client (MSVC 2022 x64)
+        id: configure
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          New-Item -ItemType Directory -Force -Path diagnostics | Out-Null
+          & cmake -S Src -B Build/ci-windows-x64 -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release *> diagnostics/configure.log
+          $code = $LASTEXITCODE
+          Get-Content diagnostics/configure.log -Tail 50
+          exit $code
+
+      - name: Build Game.exe
+        id: build
+        if: steps.configure.outcome == 'success'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          & cmake --build Build/ci-windows-x64 --config Release --target cys_wxclient --parallel 4 *> diagnostics/build.log
+          $code = $LASTEXITCODE
+          Get-Content diagnostics/build.log -Tail 65
+          exit $code
+
+      - name: Build render and UI runtime plugins
+        id: runtime
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & cmake --build Build/ci-windows-x64 --config Release --target cys_wxrender cys_uisystem --parallel 4 *> diagnostics/runtime.log
+          $code = $LASTEXITCODE
+          Get-Content diagnostics/runtime.log -Tail 75
+          exit $code
+
+      - name: Assemble client build package (data not included)
+        if: steps.build.outcome == 'success' && steps.runtime.outcome == 'success'
+        shell: pwsh
+        run: |
+          $bin = 'Build/ci-windows-x64/bin/Release'
+          if (-not (Test-Path "$bin/Game.exe")) { throw 'Game.exe not found' }
+          New-Item -ItemType Directory -Force -Path 'package/Play/Bin64' | Out-Null
+          Copy-Item "$bin/*.exe" 'package/Play/Bin64/' -ErrorAction Stop
+          Copy-Item "$bin/*.dll" 'package/Play/Bin64/' -ErrorAction Stop
+          $docs = @(
+            'TLBB 372dragon Windows x64 CLIENT BUILD — TEST ONLY',
+            '',
+            'This is a compilation artifact, not a proven playable game release.',
+            'It contains binaries only, not the 12.39 GB resource/data package.',
+            'It does not contain a configured launcher, MongoDB, game account,',
+            'server setup, FMOD SDK, NVIDIA Cg or all DirectX runtime files.',
+            'Do NOT assume Game.exe can launch or connect until those are supplied.',
+            '',
+            'Repo: https://github.com/nguyentrieu210/372dragon',
+            'Data info: https://github.com/nguyentrieu210/372dragon/blob/main/DATA_DOWNLOAD.md',
+            'Build status: Docs/guide/fork-build-status-2026-10-23.md',
+            'Required: lawful game data, matching client config, DLLs and a running server.',
+            'Do not redistribute third-party data/binaries without permission.'
+          )
+          $docs | Set-Content -LiteralPath 'package/README-BEFORE-PLAY.txt' -Encoding utf8
+          Get-ChildItem 'package/Play/Bin64' | Select-Object Name,Length
+          Get-ChildItem 'package/Play/Bin64' -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content 'package/sha256.txt'
+
+      - name: Upload test client binaries to GitHub Actions
+        if: steps.build.outcome == 'success' && steps.runtime.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TLBB-Windows-x64-client-build-only
+          path: package/
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Collect build status
+        if: always()
+        shell: pwsh
+        env:
+          CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
+        run: |
+          "configure: $env:CONFIGURE_OUTCOME" | Set-Content diagnostics/status.txt
+          "build: $env:BUILD_OUTCOME" | Add-Content diagnostics/status.txt
+          "runtime plugins: $env:RUNTIME_OUTCOME" | Add-Content diagnostics/status.txt
+          $files = @(Get-ChildItem -Path Build/ci-windows-x64 -Filter Game.exe -Recurse -ErrorAction SilentlyContinue)
+          "Game.exe files: $($files.Count)" | Add-Content diagnostics/status.txt
+          $dlls = @(Get-ChildItem -Path Build/ci-windows-x64 -Filter *.dll -Recurse -ErrorAction SilentlyContinue)
+          "runtime DLLs: $($dlls.Count)" | Add-Content diagnostics/status.txt
+          if ($files.Count -gt 0) {
+            $files | ForEach-Object { "$($_.FullName) SHA256=$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" } | Add-Content diagnostics/status.txt
+          }
+          Get-Content diagnostics/status.txt
+
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlbb-client-build-logs
+          path: diagnostics/
+          retention-days: 7
+          if-no-files-found: warn
+
+      # No public binary artifact until distribution rights are confirmed.
+      - name: Require a real successful build
+        if: always()
+        shell: pwsh
+        env:
+          CONFIGURE_OUTCOME: ${{ steps.configure.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          if ($env:CONFIGURE_OUTCOME -ne 'success' -or $env:BUILD_OUTCOME -ne 'success') {
+            throw 'Client not built. Read tlbb-client-build-logs.'
+          }
