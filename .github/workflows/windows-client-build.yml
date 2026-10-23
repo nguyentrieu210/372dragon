@@ -37,20 +37,6 @@ jobs:
           "Visual Studio: $env:VSINSTALLDIR" | Add-Content diagnostics/sdk-check.txt
           cmake --version | Select-Object -First 1 | Add-Content diagnostics/sdk-check.txt
 
-      - name: Restore historical TLBB interface only for compile diagnosis
-        shell: pwsh
-        run: |
-          # The referenced third-party repository has no verified redistribution license.
-          # Fetch it only for the ephemeral CI runner; do NOT commit or publish the file.
-          $encoded = '%E5%A4%A9%E9%BE%99%E5%85%AB%E9%83%A8%E5%AE%A2%E6%88%B7%E7%AB%AF'
-          $uri = "https://raw.githubusercontent.com/cao777/tlbb_client/1c45aa99cb2f4442f309676522bbeede4e666430/$encoded/Client/Common/TDGameInterface.h"
-          $response = Invoke-WebRequest -Uri $uri -ErrorAction Stop
-          $content = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { [string]$response.Content }
-          if ($content -notmatch 'class tGameInterfaceBase') { throw 'Unexpected interface header content' }
-          $content = $content.Replace('../../../Common/GameDefine2.h', '../../Shared/Common/GameDefine2.h')
-          Set-Content -LiteralPath 'Src/Engine/Interface/TDGameInterface.h' -Value $content -Encoding utf8
-          "TEMPORARY header staged for diagnostics, not committed" | Add-Content diagnostics/sdk-check.txt
-
       - name: Restore official Microsoft legacy D3DX for compile
         shell: pwsh
         run: |
