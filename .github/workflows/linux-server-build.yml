@@ -31,9 +31,38 @@ jobs:
       - name: Compile Lua from the bundled source
         run: |
           make -C Server/GameServer/framework/3rd/lua linux -j2 > diagnostics/lua.log 2>&1 || { tail -n 80 diagnostics/lua.log; exit 1; }
-      - name: Compile Skynet in diagnostic no-jemalloc mode
+      - name: Build Skynet-compatible jemalloc 5.2.1
         run: |
-          make -C Server/GameServer/framework linux_nojemalloc -j2 > diagnostics/skynet.log 2>&1 || { tail -n 100 diagnostics/skynet.log; exit 1; }
+          git clone --depth 1 --branch 5.2.1 https://github.com/jemalloc/jemalloc.git "$RUNNER_TEMP/jemalloc-5.2.1"
+          cd "$RUNNER_TEMP/jemalloc-5.2.1"
+          ./autogen.sh --disable-cxx --with-jemalloc-prefix=je_ --enable-prof > "$GITHUB_WORKSPACE/diagnostics/jemalloc-configure.log" 2>&1 || { tail -n 70 "$GITHUB_WORKSPACE/diagnostics/jemalloc-configure.log"; exit 1; }
+          make -j2 > "$GITHUB_WORKSPACE/diagnostics/jemalloc-build.log" 2>&1 || { tail -n 90 "$GITHUB_WORKSPACE/diagnostics/jemalloc-build.log"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p Server/GameServer/framework/3rd/jemalloc/lib
+          cp "$RUNNER_TEMP/jemalloc-5.2.1/lib/libjemalloc_pic.a" Server/GameServer/framework/3rd/jemalloc/lib/
+          nm Server/GameServer/framework/3rd/jemalloc/lib/libjemalloc_pic.a | grep -m1 ' je_malloc      - name: Compile game native modules
+        run: |
+          make -C Server/GameServer -j2 > diagnostics/modules.log 2>&1 || { tail -n 100 diagnostics/modules.log; exit 1; }
+      - name: Verify binary dependencies
+        run: |
+          file Server/GameServer/framework/skynet | tee diagnostics/binaries.txt
+          ldd Server/GameServer/framework/skynet | tee -a diagnostics/binaries.txt
+          if ldd Server/GameServer/framework/skynet | grep -q 'not found'; then exit 1; fi
+      - name: Upload compile logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlbb-server-compile-logs
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
+# This validates full Linux compilation with jemalloc, not the running game; no data, database, game accounts,
+# client connectivity or production jemalloc build is tested here.
+
+      - name: Compile Skynet with jemalloc (standard Linux target)
+        run: |
+          make -C Server/GameServer/framework linux -j2 > diagnostics/skynet.log 2>&1 || { tail -n 100 diagnostics/skynet.log; exit 1; }
       - name: Compile game native modules
         run: |
           make -C Server/GameServer -j2 > diagnostics/modules.log 2>&1 || { tail -n 100 diagnostics/modules.log; exit 1; }
