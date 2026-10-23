@@ -1,5 +1,4 @@
-name: TLBB Linux server compile check
-
+name: TLBB Linux server build with jemalloc
 on:
   workflow_dispatch:
   push:
@@ -12,73 +11,53 @@ on:
     paths:
       - .github/workflows/linux-server-build.yml
       - Server/GameServer/**
-
 permissions:
   contents: read
-
 jobs:
   server-compile:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - name: Check environment
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Prepare logs
         run: |
-          gcc --version | head -1
-          g++ --version | head -1
-          df -h .
           mkdir -p diagnostics
-      - name: Compile Lua from the bundled source
+          gcc --version | head -1
+          df -h .
+      - name: Compile included Lua
         run: |
-          make -C Server/GameServer/framework/3rd/lua linux -j2 > diagnostics/lua.log 2>&1 || { tail -n 80 diagnostics/lua.log; exit 1; }
-      - name: Build Skynet-compatible jemalloc 5.2.1
+          make -C Server/GameServer/framework/3rd/lua linux -j2 > diagnostics/lua.log 2>&1 || { tail -n 70 diagnostics/lua.log; exit 1; }
+      - name: Get official jemalloc 5.2.1 source
         run: |
-          git clone --depth 1 --branch 5.2.1 https://github.com/jemalloc/jemalloc.git "$RUNNER_TEMP/jemalloc-5.2.1"
-          cd "$RUNNER_TEMP/jemalloc-5.2.1"
+          git clone --depth 1 --branch 5.2.1 https://github.com/jemalloc/jemalloc.git /tmp/tlbb-ci-jemalloc
+          git -C /tmp/tlbb-ci-jemalloc rev-parse HEAD | tee diagnostics/jemalloc-commit.txt
+      - name: Build jemalloc with the Skynet je_ prefix
+        run: |
+          cd /tmp/tlbb-ci-jemalloc
           ./autogen.sh --disable-cxx --with-jemalloc-prefix=je_ --enable-prof > "$GITHUB_WORKSPACE/diagnostics/jemalloc-configure.log" 2>&1 || { tail -n 70 "$GITHUB_WORKSPACE/diagnostics/jemalloc-configure.log"; exit 1; }
-          make -j2 > "$GITHUB_WORKSPACE/diagnostics/jemalloc-build.log" 2>&1 || { tail -n 90 "$GITHUB_WORKSPACE/diagnostics/jemalloc-build.log"; exit 1; }
+          make -j2 > "$GITHUB_WORKSPACE/diagnostics/jemalloc-build.log" 2>&1 || { tail -n 70 "$GITHUB_WORKSPACE/diagnostics/jemalloc-build.log"; exit 1; }
           cd "$GITHUB_WORKSPACE"
           mkdir -p Server/GameServer/framework/3rd/jemalloc/lib
-          cp "$RUNNER_TEMP/jemalloc-5.2.1/lib/libjemalloc_pic.a" Server/GameServer/framework/3rd/jemalloc/lib/
-          nm Server/GameServer/framework/3rd/jemalloc/lib/libjemalloc_pic.a | grep -m1 ' je_malloc      - name: Compile game native modules
-        run: |
-          make -C Server/GameServer -j2 > diagnostics/modules.log 2>&1 || { tail -n 100 diagnostics/modules.log; exit 1; }
-      - name: Verify binary dependencies
-        run: |
-          file Server/GameServer/framework/skynet | tee diagnostics/binaries.txt
-          ldd Server/GameServer/framework/skynet | tee -a diagnostics/binaries.txt
-          if ldd Server/GameServer/framework/skynet | grep -q 'not found'; then exit 1; fi
-      - name: Upload compile logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tlbb-server-compile-logs
-          path: diagnostics/
-          if-no-files-found: warn
-          retention-days: 7
-
-# This validates full Linux compilation with jemalloc, not the running game; no data, database, game accounts,
-# client connectivity or production jemalloc build is tested here.
-
-      - name: Compile Skynet with jemalloc (standard Linux target)
+          cp /tmp/tlbb-ci-jemalloc/lib/libjemalloc_pic.a Server/GameServer/framework/3rd/jemalloc/lib/
+          nm Server/GameServer/framework/3rd/jemalloc/lib/libjemalloc_pic.a | grep ' je_malloc' > diagnostics/jemalloc-symbols.txt
+          test -s diagnostics/jemalloc-symbols.txt
+      - name: Compile standard Skynet target
         run: |
           make -C Server/GameServer/framework linux -j2 > diagnostics/skynet.log 2>&1 || { tail -n 100 diagnostics/skynet.log; exit 1; }
-      - name: Compile game native modules
+      - name: Compile native game modules
         run: |
           make -C Server/GameServer -j2 > diagnostics/modules.log 2>&1 || { tail -n 100 diagnostics/modules.log; exit 1; }
-      - name: Verify binary dependencies
+      - name: Inspect executable dependencies
         run: |
-          file Server/GameServer/framework/skynet | tee diagnostics/binaries.txt
-          ldd Server/GameServer/framework/skynet | tee -a diagnostics/binaries.txt
-          if ldd Server/GameServer/framework/skynet | grep -q 'not found'; then exit 1; fi
-      - name: Upload compile logs
+          file Server/GameServer/framework/skynet | tee diagnostics/binary.txt
+          ldd Server/GameServer/framework/skynet | tee -a diagnostics/binary.txt
+          if grep -q 'not found' diagnostics/binary.txt; then exit 1; fi
+      - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tlbb-server-compile-logs
           path: diagnostics/
-          if-no-files-found: warn
           retention-days: 7
-
-# This only validates Linux compilation; no data, database, game accounts,
-# client connectivity or production jemalloc build is tested here.
+          if-no-files-found: warn
