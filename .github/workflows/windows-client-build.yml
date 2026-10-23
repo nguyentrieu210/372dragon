@@ -84,6 +84,45 @@ jobs:
           Get-Content diagnostics/runtime.log -Tail 75
           exit $code
 
+      - name: Assemble client build package (data not included)
+        if: steps.build.outcome == 'success' && steps.runtime.outcome == 'success'
+        shell: pwsh
+        run: |
+          $bin = 'Build/ci-windows-x64/bin/Release'
+          if (-not (Test-Path "$bin/Game.exe")) { throw 'Game.exe not found' }
+          New-Item -ItemType Directory -Force -Path 'package/Play/Bin64' | Out-Null
+          Copy-Item "$bin/*.exe" 'package/Play/Bin64/' -ErrorAction Stop
+          Copy-Item "$bin/*.dll" 'package/Play/Bin64/' -ErrorAction Stop
+          $docs = @(
+            'TLBB 372dragon Windows x64 CLIENT BUILD — TEST ONLY',
+            '',
+            'This is a compilation artifact, not a proven playable game release.',
+            'It contains binaries only, not the 12.39 GB resource/data package.',
+            'It does not contain a configured launcher, MongoDB, game account,',
+            'server setup, FMOD SDK, NVIDIA Cg or all DirectX runtime files.',
+            'Do NOT assume Game.exe can launch or connect until those are supplied.',
+            '',
+            'Repo: https://github.com/nguyentrieu210/372dragon',
+            'Data info: https://github.com/nguyentrieu210/372dragon/blob/main/DATA_DOWNLOAD.md',
+            'Build status: Docs/guide/fork-build-status-2026-10-23.md',
+            'Required: lawful game data, matching client config, DLLs and a running server.',
+            'Do not redistribute third-party data/binaries without permission.'
+          )
+          $docs | Set-Content -LiteralPath 'package/README-BEFORE-PLAY.txt' -Encoding utf8
+          Get-ChildItem 'package/Play/Bin64' | Select-Object Name,Length
+          Get-ChildItem 'package/Play/Bin64' -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content 'package/sha256.txt'
+
+      - name: Upload test client binaries to GitHub Actions
+        if: steps.build.outcome == 'success' && steps.runtime.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: TLBB-Windows-x64-client-build-only
+          path: package/
+          retention-days: 7
+          if-no-files-found: error
+
       - name: Collect build status
         if: always()
         shell: pwsh
