@@ -7,10 +7,6 @@ on:
     paths:
       - .github/workflows/linux-server-build.yml
       - Server/GameServer/**
-  pull_request:
-    paths:
-      - .github/workflows/linux-server-build.yml
-      - Server/GameServer/**
 permissions:
   contents: read
 jobs:
