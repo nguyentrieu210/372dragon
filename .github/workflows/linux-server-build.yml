@@ -1,0 +1,55 @@
+name: TLBB Linux server compile check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/skynet-framework-build
+    paths:
+      - .github/workflows/linux-server-build.yml
+      - Server/GameServer/**
+  pull_request:
+    paths:
+      - .github/workflows/linux-server-build.yml
+      - Server/GameServer/**
+
+permissions:
+  contents: read
+
+jobs:
+  server-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check environment
+        run: |
+          gcc --version | head -1
+          g++ --version | head -1
+          df -h .
+          mkdir -p diagnostics
+      - name: Compile Lua from the bundled source
+        run: |
+          make -C Server/GameServer/framework/3rd/lua linux -j2 > diagnostics/lua.log 2>&1 || { tail -n 80 diagnostics/lua.log; exit 1; }
+      - name: Compile Skynet in diagnostic no-jemalloc mode
+        run: |
+          make -C Server/GameServer/framework linux_nojemalloc -j2 > diagnostics/skynet.log 2>&1 || { tail -n 100 diagnostics/skynet.log; exit 1; }
+      - name: Compile game native modules
+        run: |
+          make -C Server/GameServer -j2 > diagnostics/modules.log 2>&1 || { tail -n 100 diagnostics/modules.log; exit 1; }
+      - name: Verify binary dependencies
+        run: |
+          file Server/GameServer/framework/skynet | tee diagnostics/binaries.txt
+          ldd Server/GameServer/framework/skynet | tee -a diagnostics/binaries.txt
+          if ldd Server/GameServer/framework/skynet | grep -q 'not found'; then exit 1; fi
+      - name: Upload compile logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlbb-server-compile-logs
+          path: diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
+# This only validates Linux compilation; no data, database, game accounts,
+# client connectivity or production jemalloc build is tested here.
