@@ -1,34 +1,35 @@
-# TLBB 372dragon — kết quả build trên fork (23/10/2026)
+# 372dragon fork — build results (23/10/2026)
 
-Fork: `nguyentrieu210/372dragon`; nhánh thử `fix/skynet-framework-build`.
+Repository: `nguyentrieu210/372dragon`; work branch `fix/skynet-framework-build`.
 
-## Linux (GitHub Codespaces, Ubuntu 24.04, x86-64)
+## Server Linux x86-64 — build PASS (chưa chạy game)
 
-- Nguồn `Server/GameServer/framework/skynet-src/` thiếu 27 file lõi.
-- Đã lấy **chỉ các file còn thiếu** từ tag `v1.4.0` (`4faa6499e819e4b5463d0b1efda7cf9d9f6dabcc`) của [cloudwu/skynet](https://github.com/cloudwu/skynet), theo giấy phép MIT; giữ các file tùy biến hiện có.
-- `make -C Server/GameServer/framework/3rd/lua linux -j2`: PASS.
-- `make -C Server/GameServer/framework linux_nojemalloc -j2`: PASS.
-- `make -C Server/GameServer -j2`: PASS.
-- Binary `Server/GameServer/framework/skynet` là ELF x86-64 và `ldd` không thấy `not found` tại môi trường đã test.
-- **Giới hạn:** `linux_nojemalloc` là bản kiểm tra kỹ thuật, **không thay thế** build Linux chính thức với jemalloc; chưa thử bật server đầy đủ và đăng nhập, còn thiếu data/server configs, MongoDB và MQTT. Một số lỗi cảnh báo C++/OpenSSL cũ còn tồn tại.
-- Workflow kiểm tra trên GitHub: [Linux server compile check](https://github.com/nguyentrieu210/372dragon/actions/workflows/linux-server-build.yml).
+- Khôi phục đúng 27 file Skynet core bị thiếu từ upstream [cloudwu/skynet v1.4.0](https://github.com/cloudwu/skynet/tree/v1.4.0) (MIT); giữ nguyên file tùy biến đã có.
+- Lua 5.4 (bundled): PASS.
+- Skynet: PASS cả bản kiểm thử `linux_nojemalloc` và bản Linux chuẩn `linux` dùng jemalloc 5.2.1 với `--with-jemalloc-prefix=je_`.
+- Module C/C++ của GameServer: PASS.
+- `ldd` trên binary Skynet: không có `not found`.
+- [GitHub Actions build chuẩn có jemalloc — PASS](https://github.com/nguyentrieu210/372dragon/actions/runs/39987884252).
+- Đã thử build trên Codespace Ubuntu 24.04 x86-64. Giữ file tạo ra trên Codespace nhưng không commit thư viện .a.
+- Cảnh báo C/C++ cũ và OpenSSL 3 còn tồn tại; chưa chứng minh an toàn/đầy đủ khi chạy thật.
 
-## Windows (GitHub Actions, windows-2022)
+## Client Windows MSVC 2022 x64 — Game.exe build PASS (chưa chơi được)
 
-Lần kiểm tra: [Run 39983919852](https://github.com/nguyentrieu210/372dragon/actions/runs/39983919852).
+- [GitHub Actions: build `Game.exe` thành công](https://github.com/nguyentrieu210/372dragon/actions/runs/39986709054).
+- Đã xác minh 1 file `Game.exe` trong output, SHA256:
+  `92A3E5910E6CB9A1D6D48B8DF74AB74FDC9318B3A77B75024238E91654C3830E`.
+- `TDGameInterface.h` vẫn thiếu trong source fork; workflow lấy bản tham chiếu *chỉ để build thử* từ commit `1c45aa99cb2f4442f309676522bbeede4e666430` của [cao777/tlbb_client](https://github.com/cao777/tlbb_client). Không commit lại header vì chưa xác minh quyền phân phối; cần đối chiếu tính đúng đắn và giấy phép.
+- D3DX9 x64 dùng gói [Microsoft.DXSDK.D3DX 9.29.952.8](https://www.nuget.org/packages/Microsoft.DXSDK.D3DX), tải vào runner; không copy thư viện nhị phân vào Git.
+- FMOD Core SDK 2.02.35 chưa có. CMake hiện có silent fallback khi thiếu FMOD, vì vậy build qua không chứng minh âm thanh hoạt động.
+- `Game.exe` chưa được đóng gói làm bản phát hành; render/UI DLL, launcher, Cg, runtime và data chưa được nghiệm thu.
+- Workflow đã bổ sung bước kiểm tra build plugin `cys_wxrender` và `cys_uisystem` sau khi Game.exe compile.
 
-- CMake configure MSVC 2022 x64: PASS.
-- Compile `cys_wxclient` (Game.exe): **FAIL**, chưa có `Game.exe`.
-- Lỗi đầu tiên: `TDGameInterface.cpp:3: error C1083: Cannot open include file 'TDGameINTerFace.h'`.
-- `TDGameInterface.h` không tồn tại trong source xuất bản dù `GMGameInterface.h` cần nó. `gameinterfacebase.h` cũng không có.
-- Kiểm tra SDK: `fmod.h`, `fmod_vc.lib` và DirectX `d3dx9.lib` không có trong bản checkout.
-- Logs thực: artifact `tlbb-client-build-logs` của run nói trên.
-- **Không tạo header giả để build qua**, không tuyên bố có client chơi được.
-- Chưa upload EXE công khai vì quyền phân phối code/tài nguyên kế thừa chưa được xác minh.
+## Còn thiếu để có bản chơi thử 1 người
 
-## Bước còn thiếu trước khi test 1 người
+1. Build đầy đủ `Render.dll`, `UI_CEGUI.dll`, các DLL phụ thuộc; kiểm đúng bản executable + SDK/giấy phép.
+2. Tạo bộ client Windows có launcher/config/plugin và data hợp lệ; không dùng binary vô danh từ Internet.
+3. Dựng database MongoDB 4.4.31 / MQTT và script/scene dữ liệu riêng trên Linux; chỉ cấu hình localhost nếu test nội bộ.
+4. Thử login, tạo nhân vật, vào Đại Lý, điều khiển, thoát và đăng nhập lại; lưu log và kết quả trước khi tuyên bố game chạy được.
+5. Chưa có căn cứ để phát hành binary hoặc data TLBB kế thừa công khai.
 
-1. Phục hồi header gốc từ nguồn hợp lệ và SDK Windows x64, sau đó build Game.exe + DLL và kiểm bản chạy.
-2. Dựng Linux server đầy đủ với các dependency đúng phiên bản, cài database riêng, tải data nếu quyền sử dụng cho phép.
-3. Kiểm đăng nhập, tạo nhân vật, vào Đại Lý, di chuyển và thoát/đăng nhập lại.
-4. Chỉ phát hành file tải khi bản chạy đã được kiểm tra và quyền phân phối hợp lệ.
+**Quy ước:** CI compile PASS không đồng nghĩa game runtime PASS. Không merge `main` hay công bố gói chơi cho tới khi nghiệm thu đủ.
