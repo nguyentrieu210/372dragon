@@ -18,7 +18,7 @@ Repository: `nguyentrieu210/372dragon`; work branch `fix/skynet-framework-build`
 - [GitHub Actions: build `Game.exe` thành công](https://github.com/nguyentrieu210/372dragon/actions/runs/39986709054).
 - Đã xác minh 1 file `Game.exe` trong output, SHA256:
   `92A3E5910E6CB9A1D6D48B8DF74AB74FDC9318B3A77B75024238E91654C3830E`.
-- `TDGameInterface.h` vẫn thiếu trong source fork; workflow lấy bản tham chiếu *chỉ để build thử* từ commit `1c45aa99cb2f4442f309676522bbeede4e666430` của [cao777/tlbb_client](https://github.com/cao777/tlbb_client). Không commit lại header vì chưa xác minh quyền phân phối; cần đối chiếu tính đúng đắn và giấy phép.
+- Đã bổ sung `Src/Engine/Interface/TDGameInterface.h` do dự án tự tái tạo khai báo interface từ `CGameInterface` và chuẩn hóa tên include tương ứng. Lần CI PASS được ghi ở trên là từ trước thay đổi này, khi dùng header lịch sử chỉ trong runner tạm; cần xem lần CI tiếp theo để xác nhận header mới.
 - D3DX9 x64 dùng gói [Microsoft.DXSDK.D3DX 9.29.952.8](https://www.nuget.org/packages/Microsoft.DXSDK.D3DX), tải vào runner; không copy thư viện nhị phân vào Git.
 - FMOD Core SDK 2.02.35 chưa có. CMake hiện có silent fallback khi thiếu FMOD, vì vậy build qua không chứng minh âm thanh hoạt động.
 - `Game.exe` chưa được đóng gói làm bản phát hành; render/UI DLL, launcher, Cg, runtime và data chưa được nghiệm thu.
