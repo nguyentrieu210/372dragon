@@ -33,3 +33,9 @@ Repository: `nguyentrieu210/372dragon`; work branch `fix/skynet-framework-build`
 5. Chưa có căn cứ để phát hành binary hoặc data TLBB kế thừa công khai.
 
 **Quy ước:** CI compile PASS không đồng nghĩa game runtime PASS. Không merge `main` hay công bố gói chơi cho tới khi nghiệm thu đủ.
+
+## Blocker runtime mới phát hiện
+
+- `Server/GameServer/main.lua` gọi `license_check.check_or_abort()`; module này `require('llicense')`.
+- Trong Codespace snapshot đang chạy, không tìm thấy native module `llicense` để load. Khi `require` thất bại, chương trình gọi `skynet.abort()`. Vì vậy **build server PASS chưa đồng nghĩa server khởi động được**.
+- Cần tìm thành phần runtime/giấy phép hợp lệ từ nhà cung cấp để kiểm thử, không tự vô hiệu hóa kiểm tra.
